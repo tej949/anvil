@@ -2,21 +2,23 @@ class IncidentMemory:
 
     def __init__(self):
 
-        self.memory = []
+        self.incidents = []
 
-    def store(
+    def add_incident(
         self,
         incident_id,
         fingerprint,
-        remediation
+        remediation,
+        service,
     ):
 
-        self.memory.append({
+        self.incidents.append({
             "incident_id": incident_id,
             "fingerprint": fingerprint,
-            "remediation": remediation
+            "remediation": remediation,
+            "service": service,
         })
 
-    def all(self):
+    def get_all(self):
 
-        return self.memory
+        return self.incidents
