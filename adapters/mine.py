@@ -1,6 +1,17 @@
-import sys
-from pathlib import Path
+"""
+Anvil Engine implementation - Persistent Context Engine for P-02.
 
+This module contains the main Engine class that implements the benchmark's
+Adapter interface. It uses the anvil application's graph and reasoning modules
+to provide incident context reconstruction.
+
+The Engine is discovered by the benchmark via the bridge module in:
+    bench-p02-context/adapters/mine.py
+"""
+from pathlib import Path
+import sys
+
+# Get path to benchmark directory for importing the base Adapter class
 BENCH_ROOT = (
     Path(__file__)
     .resolve()
@@ -8,10 +19,19 @@ BENCH_ROOT = (
     / "bench-p02-context"
 )
 
-sys.path.append(str(BENCH_ROOT))
+# Add bench-p02-context to path to import base adapter and schema
+sys.path.insert(0, str(BENCH_ROOT))
 
-from adapter import Adapter
+try:
+    from adapter import Adapter
+except ImportError as e:
+    raise ImportError(
+        f"Failed to import Adapter from benchmark folder. "
+        f"Expected at: {BENCH_ROOT / 'adapter.py'}. "
+        f"Error: {e}"
+    ) from e
 
+# Import from anvil application modules
 from app.graph import (
     OperationalMemoryGraph,
     GraphIngestor,
@@ -21,6 +41,8 @@ from app.graph import (
 from app.reasoning import (
     ContextReconstructor
 )
+
+
 class Engine(Adapter):
 
     def __init__(self):
