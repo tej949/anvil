@@ -12,7 +12,7 @@ class SimilarityEngine:
         seq1 = fp1["sequence"]
         seq2 = fp2["sequence"]
 
-        # exact sequence ordering
+        # sequence ordering similarity
         sequence_score = (
             SequenceMatcher(
                 None,
@@ -21,7 +21,7 @@ class SimilarityEngine:
             ).ratio()
         )
 
-        # shared token overlap
+        # token overlap similarity
         overlap = len(
             set(seq1) & set(seq2)
         )
@@ -31,7 +31,7 @@ class SimilarityEngine:
             max(len(set(seq1)), 1)
         )
 
-        # service overlap
+        # service continuity
         service_overlap = len(
             set(fp1["services"])
             &
@@ -43,13 +43,13 @@ class SimilarityEngine:
             1.0
         )
 
-        # weighted final score
+        # weighted final similarity
         final_score = (
-            sequence_score * 0.6
+            sequence_score * 0.70
             +
-            overlap_score * 0.3
+            overlap_score * 0.25
             +
-            service_score * 0.1
+            service_score * 0.05
         )
 
         return round(final_score, 4)

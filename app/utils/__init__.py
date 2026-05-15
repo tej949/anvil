@@ -1,4 +1,4 @@
-from app.utils.time import (
+from .time import (
     parse_timestamp,
     time_difference_seconds
 )

@@ -1,16 +1,16 @@
-from app.reasoning.fingerprint import (
+from .fingerprint import (
     FingerprintBuilder
 )
 
-from app.reasoning.memory import (
+from .memory import (
     IncidentMemory
 )
 
-from app.reasoning.similarity import (
+from .similarity import (
     SimilarityEngine
 )
 
-from app.reasoning.reconstruct import (
+from .reconstruct import (
     ContextReconstructor
 )
 

@@ -1,8 +1,8 @@
-from app.graph.topology import (
+from .topology import (
     TopologyMapper
 )
 
-from app.utils.time import (
+from ..utils.time import (
     time_difference_seconds
 )
 

@@ -1,150 +1,427 @@
-"""
-Anvil Engine implementation - Persistent Context Engine for P-02.
-"""
-
-from pathlib import Path
-import sys
-
-# Path to benchmark folder
-BENCH_ROOT = (
-    Path(__file__)
-    .resolve()
-    .parents[2]
-    / "bench-p02-context"
+from .fingerprint import (
+    FingerprintBuilder
 )
 
-# Add benchmark folder to Python path
-sys.path.insert(0, str(BENCH_ROOT))
-
-try:
-    from adapter import Adapter
-
-except ImportError as e:
-
-    raise ImportError(
-        f"Failed to import Adapter from benchmark folder. "
-        f"Expected at: {BENCH_ROOT / 'adapter.py'}. "
-        f"Error: {e}"
-    ) from e
-
-from app.graph import (
-    OperationalMemoryGraph,
-    GraphIngestor,
-    build_temporal_edges
+from .similarity import (
+    SimilarityEngine
 )
 
-from app.reasoning import (
-    ContextReconstructor
+from .memory import (
+    IncidentMemory
+)
+
+from ..utils.time import (
+    parse_timestamp
 )
 
 
-class Engine(Adapter):
+class ContextReconstructor:
 
-    def __init__(self):
-
-        # graph memory
-        self.graph = (
-            OperationalMemoryGraph()
-        )
-
-        # ingestion pipeline
-        self.ingestor = (
-            GraphIngestor(self.graph)
-        )
-
-        # reasoning engine
-        self.reconstructor = (
-            ContextReconstructor()
-        )
-
-        # local event cache
-        self.events = []
-
-    def ingest(self, events):
-
-        events = list(events)
-
-        # ingest events
-        self.ingestor.ingest(events)
-
-        # build temporal graph edges
-        build_temporal_edges(
-            self.graph,
-            events
-        )
-
-        # store locally
-        self.events.extend(events)
-
-        # learn historical incident patterns
-        for event in events:
-
-            if (
-                event.get("kind")
-                == "incident_signal"
-            ):
-
-                incident_id = event.get(
-                    "incident_id",
-                    f"incident-{len(self.events)}"
-                )
-
-                service = event.get(
-                    "service",
-                    "unknown"
-                )
-
-                # nearby events
-                related_events = (
-                    self.ingestor.get_events_near_signal(
-                        event,
-                        window_seconds=900
-                    )
-                )
-
-                # default remediation
-                remediation = "rollback"
-
-                # find nearby remediation
-                for nearby in related_events:
-
-                    if (
-                        nearby.get("kind")
-                        == "remediation"
-                    ):
-
-                        remediation = nearby.get(
-                            "action",
-                            "rollback"
-                        )
-
-                        break
-
-                # learn incident fingerprint
-                self.reconstructor.learn_from_history(
-                    incident_id=incident_id,
-                    events=related_events,
-                    remediation=remediation,
-                    service=service,
-                )
-
-    def reconstruct_context(
+    def __init__(
         self,
-        signal,
-        mode="fast"
+        graph=None
     ):
 
-        related_events = (
-            self.ingestor.get_events_near_signal(
-                signal
+        self.graph = graph
+
+        self.fingerprint_builder = (
+            FingerprintBuilder()
+        )
+
+        self.similarity_engine = (
+            SimilarityEngine()
+        )
+
+        self.memory = (
+            IncidentMemory()
+        )
+
+    def learn_from_history(
+        self,
+        incident_id,
+        events,
+        remediation,
+        service,
+    ):
+
+        fingerprint = (
+            self.fingerprint_builder.build(
+                events
             )
         )
 
-        return self.reconstructor.reconstruct(
-            signal,
-            related_events
+        self.memory.add_incident(
+            incident_id=incident_id,
+            fingerprint=fingerprint,
+            remediation=remediation,
+            service=service,
         )
 
-    def close(self):
+    def reconstruct(
+        self,
+        signal,
+        related_events
+    ):
 
-        pass
+        # sort related events temporally
+        related_events = sorted(
+            related_events,
+            key=lambda e: parse_timestamp(
+                e.get("ts", "")
+            )
+        )
+
+        # graph traversal enrichment
+        graph_neighbors = []
+
+        if self.graph:
+
+            for event in related_events:
+
+                event_id = (
+                    event.get("event_id")
+                    or f"{event.get('kind')}:"
+                       f"{event.get('service')}:"
+                       f"{event.get('ts')}"
+                )
+
+                try:
+
+                    neighbors = self.graph.get_neighbors(
+                        event_id
+                    )
+
+                    graph_neighbors.extend(
+                        neighbors
+                    )
+
+                except Exception:
+
+                    continue
+
+        # dependency propagation analysis
+        neighbor_services = set()
+
+        for neighbor in graph_neighbors:
+
+            if isinstance(neighbor, dict):
+
+                svc = neighbor.get(
+                    "canonical_service",
+                    neighbor.get("service")
+                )
+
+                if svc:
+
+                    neighbor_services.add(svc)
+
+        current_fp = (
+            self.fingerprint_builder.build(
+                related_events
+            )
+        )
+
+        matches = []
+
+        # compare against historical incidents
+        for historical in self.memory.get_all():
+
+            similarity = (
+                self.similarity_engine.compare(
+                    current_fp,
+                    historical["fingerprint"]
+                )
+            )
+
+            # precision filtering
+            if similarity >= 0.40:
+
+                matches.append({
+                    "incident_id": historical["incident_id"],
+                    "similarity": similarity,
+                    "rationale": (
+                        "behavioral pattern match"
+                    ),
+                    "remediation": historical["remediation"],
+                })
+
+        # sort descending
+        matches.sort(
+            key=lambda x: x["similarity"],
+            reverse=True
+        )
+
+        # remove duplicates
+        seen = set()
+
+        unique_matches = []
+
+        for match in matches:
+
+            incident_id = match["incident_id"]
+
+            if incident_id in seen:
+                continue
+
+            seen.add(incident_id)
+
+            unique_matches.append(match)
+
+        # top 5
+        top_matches = unique_matches[:5]
+
+        # remediation suggestions
+        suggested_remediations = []
+
+        if top_matches:
+
+            best_match = top_matches[0]
+
+            suggested_remediations.append({
+                "action": best_match["remediation"],
+                "target": signal.get("service"),
+                "historical_outcome": "resolved",
+                "confidence": best_match["similarity"],
+            })
+
+        # build causal chain
+        causal_chain = []
+
+        event_sequence = []
+
+        has_deploy = False
+        has_timeout = False
+        has_latency = False
+
+        previous_event = None
+
+        for event in related_events:
+
+            kind = event.get("kind")
+
+            if not kind:
+                continue
+
+            service = event.get(
+                "canonical_service",
+                event.get("service")
+            )
+
+            ts = event.get("ts")
+
+            event_id = (
+                event.get("event_id")
+                or f"{kind}:{service}:{ts}"
+            )
+
+            event_entry = {
+                "event_type": kind,
+                "service": service,
+                "timestamp": ts,
+                "event_id": event_id,
+            }
+
+            # enrich metrics
+            if kind == "metric":
+
+                metric_name = event.get(
+                    "name",
+                    "unknown_metric"
+                )
+
+                event_entry["metric"] = metric_name
+
+                if "latency" in metric_name:
+                    has_latency = True
+
+                event_sequence.append(
+                    f"metric({metric_name})"
+                )
+
+            # enrich logs
+            elif kind == "log":
+
+                msg = event.get(
+                    "msg",
+                    ""
+                ).lower()
+
+                if "timeout" in msg:
+
+                    has_timeout = True
+
+                    event_entry["signal"] = (
+                        "timeout"
+                    )
+
+                    event_sequence.append(
+                        "log(timeout)"
+                    )
+
+                else:
+
+                    level = event.get(
+                        "level",
+                        "info"
+                    )
+
+                    event_entry["level"] = level
+
+                    event_sequence.append(
+                        f"log({level})"
+                    )
+
+            # deploy tracking
+            elif kind == "deploy":
+
+                has_deploy = True
+
+                event_sequence.append(
+                    f"deploy({service})"
+                )
+
+            # remediation tracking
+            elif kind == "remediation":
+
+                action = event.get(
+                    "action",
+                    "unknown"
+                )
+
+                event_entry["action"] = action
+
+                event_sequence.append(
+                    f"remediation({action})"
+                )
+
+            else:
+
+                event_sequence.append(kind)
+
+            # causal edge generation
+            if previous_event:
+
+                previous_kind = previous_event.get(
+                    "kind"
+                )
+
+                previous_service = previous_event.get(
+                    "canonical_service",
+                    previous_event.get("service")
+                )
+
+                previous_ts = previous_event.get(
+                    "ts"
+                )
+
+                previous_event_id = (
+                    previous_event.get("event_id")
+                    or (
+                        f"{previous_kind}:"
+                        f"{previous_service}:"
+                        f"{previous_ts}"
+                    )
+                )
+
+                causal_chain.append({
+                    "cause_event_id":
+                        previous_event_id,
+
+                    "effect_event_id":
+                        event_id,
+
+                    "evidence": (
+                        "temporal event progression"
+                    ),
+
+                    "confidence": 0.7,
+                })
+
+            previous_event = event
+
+        # root cause hints
+        likely_root_cause = (
+            "unknown operational anomaly"
+        )
+
+        if has_deploy and has_timeout:
+
+            likely_root_cause = (
+                "possible deployment regression"
+            )
+
+        elif has_latency and has_timeout:
+
+            likely_root_cause = (
+                "possible downstream service saturation"
+            )
+
+        elif has_latency:
+
+            likely_root_cause = (
+                "possible performance degradation"
+            )
+
+        # confidence
+        confidence = (
+            top_matches[0]["similarity"]
+            if top_matches
+            else 0.3
+        )
+
+        # dynamic explanation
+        explanation = (
+            "Detected operational similarity using "
+            "behavioral fingerprints, temporal event "
+            "ordering, topology-aware service identity "
+            "resolution, remediation memory, and "
+            "graph-aware dependency reasoning. "
+        )
+
+        if event_sequence:
+
+            explanation += (
+                "Observed sequence: "
+                + " → ".join(event_sequence[:6])
+            )
+
+        if neighbor_services:
+
+            explanation += (
+                " Dependency propagation observed across: "
+                + ", ".join(
+                    sorted(neighbor_services)
+                )
+                + "."
+            )
+
+        explanation += (
+            f" Likely root cause: "
+            f"{likely_root_cause}."
+        )
+
+        return {
+
+            "related_events": related_events,
+
+            "causal_chain": causal_chain,
+
+            "likely_root_cause":
+                likely_root_cause,
+
+            "similar_past_incidents": [
+                {
+                    "incident_id": match["incident_id"],
+                    "similarity": match["similarity"],
+                    "rationale": match["rationale"],
+                }
+                for match in top_matches
+            ],
+
+            "suggested_remediations":
+                suggested_remediations,
+
+            "confidence": confidence,
+
+            "explain": explanation,
+        }

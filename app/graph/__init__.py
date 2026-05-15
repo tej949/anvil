@@ -1,16 +1,16 @@
-from app.graph.memory_graph import (
+from .memory_graph import (
     OperationalMemoryGraph
 )
 
-from app.graph.topology import (
+from .topology import (
     TopologyMapper
 )
 
-from app.graph.temporal import (
+from .temporal import (
     build_temporal_edges
 )
 
-from app.graph.ingest import (
+from .ingest import (
     GraphIngestor
 )
 

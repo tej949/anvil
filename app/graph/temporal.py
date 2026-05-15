@@ -1,11 +1,6 @@
-from datetime import datetime
-
-
-def parse_ts(ts):
-
-    return datetime.fromisoformat(
-        ts.replace("Z", "+00:00")
-    )
+from ..utils.time import (
+    parse_timestamp
+)
 
 
 def build_temporal_edges(
@@ -13,21 +8,35 @@ def build_temporal_edges(
     events
 ):
 
-    events = sorted(
+    ordered_events = sorted(
         events,
-        key=lambda e: e["ts"]
+        key=lambda e: parse_timestamp(
+            e["ts"]
+        )
     )
 
-    for i in range(len(events) - 1):
+    for i in range(
+        len(ordered_events) - 1
+    ):
 
-        a = events[i]
-        b = events[i + 1]
+        current_event = ordered_events[i]
 
-        a_id = graph._make_event_id(a)
-        b_id = graph._make_event_id(b)
+        next_event = ordered_events[i + 1]
+
+        current_id = (
+            current_event.get("event_id")
+            or current_event.get("incident_id")
+            or f"{i}"
+        )
+
+        next_id = (
+            next_event.get("event_id")
+            or next_event.get("incident_id")
+            or f"{i+1}"
+        )
 
         graph.add_edge(
-            a_id,
-            b_id,
-            relation="temporal"
+            current_id,
+            next_id,
+            "temporal"
         )
