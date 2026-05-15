@@ -6,3 +6,4 @@ python-dateutil
 numpy
 sentence-transformers
 scikit-learn
+python-dotenv
